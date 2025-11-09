@@ -1,0 +1,501 @@
+# 資料整理與篩選
+# 套件下載
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(corrplot)
+library(showtext)
+library(openxlsx)
+font_add_google("Noto Sans TC", "notosans")
+showtext_auto()
+
+# 資料
+國中 = read_excel("C:\\Users\\user\\Desktop\\資料漫步\\data.xlsx", sheet=2)
+高中 = read_excel("C:\\Users\\user\\Desktop\\資料漫步\\data.xlsx", sheet=3)
+所有 = rbind(國中,高中) #school_system=2(國中),3(高中)
+所有$school_system = ifelse(所有$school_system==2,"國中","高中")
+
+# Y
+所有$情緒困擾天數 = rowSums(所有[,c("qn9_1","qn9_2","qn9_3","qn9_4")], na.rm = TRUE)
+# 身體疲憊 = qn8a_1
+# 心理疲憊 = qn8b_1
+
+# X
+# 基本資料
+# 國高中 = school_system
+# 性別 = qa1
+所有$qa1 = ifelse(所有$qa1==1,"男","女")
+
+所有$出生地區 = case_when(所有$qa3 %in% c(1,2,3,4,5,6,17) ~ "北部",
+                    所有$qa3 %in% c(7,8,9,10,11) ~ "中部",
+                    所有$qa3 %in% c(12,13,14,15,16,20) ~ "南部",
+                    TRUE ~ '其他')
+
+# 家庭因素
+# 父母婚姻狀況("qa4a")
+所有 <- 所有 %>%
+  mutate(
+    婚姻狀況 = case_when(
+      qa4a %in% c(1, 2, 3) ~ "父母結婚",    
+      qa4a %in% c(4, 5) ~ "父母離婚", 
+      qa4a == 8 ~ "父母一方死亡",  
+      qa4a == 9 ~ "父母雙亡",     
+      qa4a %in% c(6, 7, 88, 99) ~ "其他/未知", 
+      TRUE ~ NA_character_
+    )
+  )
+# 家人同住("qa4b")
+vars_to_clean <- c("qa4b_1", "qa4b_2", "qa4b_3", "qa4b_4", "qa4b_5", "qa4b_88")
+existing_vars_to_clean <- intersect(vars_to_clean, colnames(所有))
+所有 <- 所有 %>%
+  mutate(across(all_of(existing_vars_to_clean),
+                ~as.integer(. == 1 & !is.na(.))))
+所有 <- 所有 %>%
+  mutate(
+    家庭型態 = case_when(
+      (qa4b_1 == 1 | qa4b_2 == 1) & (qa4b_3 == 1 | qa4b_4 == 1) ~ "擴大家庭",
+      (qa4b_1 == 0 & qa4b_2 == 0) & (qa4b_3 == 1 | qa4b_4 == 1) ~ "隔代教養",
+      (qa4b_1 == 1 & qa4b_2 == 1) & (qa4b_3 == 0 & qa4b_4 == 0) ~ "雙親家庭",
+      (qa4b_1 == 1 & qa4b_2 == 0) & (qa4b_3 == 0 & qa4b_4 == 0) ~ "單親家庭(父)",
+      (qa4b_1 == 0 & qa4b_2 == 1) & (qa4b_3 == 0 & qa4b_4 == 0) ~ "單親家庭(母)",
+      (qa4b_1 == 0 & qa4b_2 == 0) & (qa4b_5 == 1 | qa4b_88 == 1) ~ "其他家庭",
+      TRUE ~ "其他"))
+# 家庭經濟 = 所有$qo7_1
+# 父教育程度 = qa5a
+table(所有$qa5a)
+組中點 = c('1'=1,'2'=2,'3'=3,'4'=4,'5'=5,'6'=6,'7'=7,'8'=8,'99'=NA)
+所有$qa5a = 組中點[as.character(所有$qa5a)]
+# 母教育程度 = qa5b
+table(所有$qa5b)
+組中點 = c('1'=1,'2'=2,'3'=3,'4'=4,'5'=5,'6'=6,'7'=7,'8'=8,'99'=NA)
+所有$qa5b = 組中點[as.character(所有$qa5b)]
+# 家庭支持度
+所有$qi10_1 = 5 - 所有$qi10_1
+所有$qi10_2 = 5 - 所有$qi10_2
+所有$qi10_3 = 5 - 所有$qi10_3
+所有$qm5_01_1 = 5 - 所有$qm5_01_1
+所有$qm5_02_1 = 5 - 所有$qm5_02_1
+所有$qm5_04_1 = 5 - 所有$qm5_04_1
+所有$qm5_06_1 = 5 - 所有$qm5_06_1
+所有$家庭支持度 = rowSums(所有[,c("qi10_1","qi10_2","qi10_3","qi10_4",
+                         'qm5_01_1','qm5_02_1','qm5_04_1','qm5_06_1')], na.rm=TRUE)
+
+# 生活習慣
+所有$平日睡眠時間 = (所有$qn10b - 所有$qn10a) %% 24
+所有$假日睡眠時間 = (所有$qn10d - 所有$qn10c) %% 24
+
+# 朋友
+組中點= c('1'=0,'2'=3,'3'=8,'4'=13,'5'=23,'6'=35.5,'7'=50.5,'8'=80,'9'=100)
+所有$現實交友 = 組中點[as.character(所有$qb2b)]
+所有$網路交友 = 組中點[as.character(所有$qb2c)]
+# 談心人數 = 所有$qb2b
+
+# 課業
+組中點 = c('1'=90,'2'=87,'3'=82,'4'=77,'5'=72,'6'=67,'7'=62,'8'=59,'97'=NA)
+所有$成績平均 = 組中點[as.character(所有$qn5)]
+所有$qn6 = 6 - 所有$qn6
+所有 <- 所有 %>%
+  mutate(across(all_of(c(
+    "qi4_1_1", "qi4_1_1_0", "qi4_1_2", "qi4_1_2_0", "qi4_1_3", "qi4_1_3_0",
+    "qi4_2_1", "qi4_2_1_0", "qi4_2_2", "qi4_2_2_0", "qi4_2_3", "qi4_2_3_0"
+  )), ~replace_na(., 0)))
+
+所有$三C學習工作時間 = (60*所有$qi4_1_1 + 所有$qi4_1_1_0 +
+                        60*所有$qi4_1_2 + 所有$qi4_1_2_0 +
+                        60*所有$qi4_1_3 + 所有$qi4_1_3_0)/3
+
+# 上網行為
+所有$電玩時間 = 所有$qm1a*60/7
+所有$三C娛樂時間 = (60*所有$qi4_2_1 + 所有$qi4_2_1_0 +
+                    60*所有$qi4_2_2 + 所有$qi4_2_2_0 +
+                    60*所有$qi4_2_3 + 所有$qi4_2_3_0)/3
+
+# 健康資訊搜尋
+所有$身體健康資訊 =  rowSums(所有[,c("ql3_1","ql3_2","ql3_3","ql3_4")], na.rm=TRUE)
+所有$心理健康資訊 =  rowSums(所有[,c("ql3_5","ql3_6","ql3_7",'ql3_8')], na.rm=TRUE)
+所有$健康資訊判斷能力分數 = rowSums(所有[,c("ql4_01_1","ql4_02_1","ql4_03_1","ql4_04_1",'ql4_05_1')], na.rm=TRUE)
+
+# 自我認知分數
+所有$qn3_1 = 6 - 所有$qn3_1
+所有$自我認知分數 = rowSums(所有[,c("qn2a_01_1","qn2a_02_1","qn2a_03_1","qn2a_04_1",
+                                    "qn2a_05_1","qn2b_1","qn3_1","qn4_1")], na.rm = TRUE)
+
+#write.csv(所有, "所有.csv", fileEncoding = "big5")
+
+# 數值型變數(Y)：情緒困擾天數
+# 順序型變數(Y)：身體疲憊(qn8a_1),心理疲憊(qn8b_1)
+# 數值型變數(X)：家庭支持度,平日睡眠時間,假日睡眠時間,成績平均,談心人數(qb2b),
+#                現實交友,網路交友,自我認知分數,身體健康資訊,心理健康資訊,
+#                健康資訊判斷能力分數,電玩時間,三C娛樂時間,三C學習工作時間
+# 順序型變數(X)：家庭經濟(qo7_1),課業表現(qn6)
+# 類別型變數(X)：國高中(school_system),性別(qa1),出生地區,婚姻狀況,家庭型態,
+#                父教育程度(qa5a),母教育程度(qa5b)
+
+
+# 基本資料圖
+junior <- read_excel("C:/Users/ljxpj/OneDrive/Máy tính/New folder (3)/data.xlsx", sheet = 2) %>%
+  mutate(level = "junior") 
+
+senior <- read_excel("C:/Users/ljxpj/OneDrive/Máy tính/New folder (3)/data.xlsx", sheet = 3) %>%
+  mutate(level = "senior") 
+
+data_all <- bind_rows(junior, senior)
+
+data_all <- data_all %>%
+  mutate(
+    Gender = case_when(
+      qa1 == 1 ~ "男",
+      qa1 == 2 ~ "女",
+      TRUE ~ NA_character_
+    ),
+    Birthplace = case_when(
+      qa3 %in% c(1,2,3,4,5,6,17) ~ "北部",
+      qa3 %in% c(7,8,9,10,11) ~ "中部",
+      qa3 %in% c(12,13,14,15,16,20) ~ "南部",
+      TRUE ~ "其他"
+    )
+  )
+
+total_students <- nrow(filter(data_all, !is.na(Gender), !is.na(Birthplace)))
+
+summary_data <- data_all %>%
+  filter(!is.na(Gender), !is.na(Birthplace)) %>%
+  group_by(level, Birthplace, Gender) %>%
+  summarise(Frequency = n(), .groups = "drop") %>%
+  mutate(
+    Percentage = Frequency / total_students * 100,
+    
+    Label = paste0(Frequency, " (", round(Percentage, 1), "%)") 
+  ) 
+
+summary_data$Birthplace <- factor(
+  summary_data$Birthplace, 
+  levels = c("北部", "中部", "南部", "其他") 
+)
+
+
+final_chart <- ggplot(summary_data, aes(x = Birthplace, y = Frequency, fill = Gender)) +
+  
+  geom_col(
+    stat = "identity", 
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  geom_text(
+    aes(
+      label = paste0(Frequency, " (", round(Percentage, 1), "%)"),
+      # Simplifies vjust for better visual alignment:
+      vjust = -0.4, 
+      hjust = case_when(
+        Frequency <= 6 & Gender == "???" ~ 0.7, 
+        Frequency <= 6 & Gender == "???" ~ 0.3, 
+        TRUE ~ 0.5
+      )
+    ),
+    position = position_dodge(width = dodge_width),
+    size = 6 
+  ) +
+  
+  coord_cartesian(ylim = c(0, 150)) + 
+  facet_wrap(~level) +
+  labs(
+    title = "學生分佈: 出生地, 性別與學制 ",
+    x = "出生地區",
+    y = "學生人數",
+    fill = "性別"
+  ) +
+  
+  scale_fill_discrete(labels = c("女", "男")) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 30),
+    strip.text = element_text(face = "bold", size = 30),
+    axis.title = element_text(face = "bold", size = 30),
+    
+    axis.text.x = element_text(size = 25, face = "bold"), 
+    
+    axis.text.y = element_text(size = 20),
+    
+    panel.spacing.x = unit(4, "lines"), 
+    
+    plot.margin = unit(c(0.5, 0.5, 0.5, 1.5), "cm") 
+  )
+
+plot.margin = unit(c(0.5, 0.5, 0.5, 1.5), "cm") 
+)
+
+print(final_chart)
+
+
+# 統計檢定
+# 情緒困擾天數
+# T test
+# school_system,qa1
+var.test(所有$情緒困擾天數~所有$school_system)
+t.test(所有$情緒困擾天數~所有$school_system, var.equal = T)
+var.test(所有$情緒困擾天數~所有$qa1)
+t.test(所有$情緒困擾天數~所有$qa1, var.equal = F)
+
+# One-way ANOVA
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+a1 = aov(所有$情緒困擾天數~所有$出生地區,na.action = na.omit);summary(a1);TukeyHSD(a1)
+a2 = aov(所有$情緒困擾天數~所有$婚姻狀況,na.action = na.omit);summary(a2)
+a3 = aov(所有$情緒困擾天數~所有$家庭型態);summary(a3)
+a4 = aov(所有$情緒困擾天數~as.factor(所有$qa5a));summary(a4);TukeyHSD(a4)
+a5 = aov(所有$情緒困擾天數~as.factor(所有$qa5b));summary(a5)
+
+# Mann-Whitney U test
+# school_system,qa1
+wilcox.test(所有$情緒困擾天數~所有$school_system)
+aggregate(情緒困擾天數 ~ school_system, data = 所有, median)
+wilcox.test(所有$情緒困擾天數~所有$qa1)
+aggregate(情緒困擾天數 ~ qa1, data = 所有, median)
+
+# Kruskal–Wallis test
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+kruskal.test(情緒困擾天數 ~ 出生地區, data = 所有)
+pairwise.wilcox.test(所有$情緒困擾天數,所有$出生地區,p.adjust.method = "holm")
+aggregate(情緒困擾天數 ~ 出生地區, data = 所有, median)
+kruskal.test(情緒困擾天數 ~ 婚姻狀況, data = 所有)
+kruskal.test(情緒困擾天數 ~ 家庭型態, data = 所有)
+kruskal.test(情緒困擾天數 ~ qa5a, data = 所有)
+kruskal.test(情緒困擾天數 ~ qa5b, data = 所有)
+
+
+
+# qn8a_1：身體疲憊
+# T test
+# school_system,qa1
+var.test(所有$qn8a_1~所有$school_system)
+t.test(所有$qn8a_1~所有$school_system, var.equal = T)
+var.test(所有$qn8a_1~所有$qa1)
+t.test(所有$qn8a_1~所有$qa1, var.equal = T)
+
+# One-way ANOVA
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+a1 = aov(所有$qn8a_1~所有$出生地區,na.action = na.omit);summary(a1)
+a2 = aov(所有$qn8a_1~所有$婚姻狀況,na.action = na.omit);summary(a2)
+a3 = aov(所有$qn8a_1~所有$家庭型態,na.action = na.omit);summary(a3)
+a4 = aov(所有$qn8a_1~as.factor(所有$qa5a),na.action = na.omit);summary(a4)
+a5 = aov(所有$qn8a_1~as.factor(所有$qa5b),na.action = na.omit);summary(a5)
+
+# Mann-Whitney U test
+# school_system,qa1
+wilcox.test(所有$qn8a_1~所有$school_system)
+aggregate(qn8a_1 ~ school_system, data = 所有, median)
+aggregate(qn8a_1 ~ school_system, data = 所有, mean)
+wilcox.test(所有$qn8a_1~所有$qa1)
+aggregate(qn8a_1 ~ qa1, data = 所有, median)
+aggregate(qn8a_1 ~ qa1, data = 所有, mean)
+
+# Kruskal–Wallis test
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+kruskal.test(qn8a_1 ~ 出生地區, data = 所有)
+kruskal.test(qn8a_1 ~ 婚姻狀況, data = 所有)
+kruskal.test(qn8a_1 ~ 家庭型態, data = 所有)
+kruskal.test(qn8a_1 ~ qa5a, data = 所有)
+kruskal.test(qn8a_1 ~ qa5b, data = 所有)
+
+# qn8b_1：心理疲憊
+# T test
+# school_system,qa1
+var.test(所有$qn8b_1~所有$school_system)
+t.test(所有$qn8b_1~所有$school_system, var.equal = F)
+var.test(所有$qn8b_1~所有$qa1)
+t.test(所有$qn8b_1~所有$qa1, var.equal = T)
+
+# One-way ANOVA
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+a1 = aov(所有$qn8b_1~所有$出生地區,na.action = na.omit);summary(a1);TukeyHSD(a1)
+a2 = aov(所有$qn8b_1~所有$婚姻狀況,na.action = na.omit);summary(a2)
+a3 = aov(所有$qn8b_1~所有$家庭型態,na.action = na.omit);summary(a3)
+a4 = aov(所有$qn8b_1~as.factor(所有$qa5a),na.action = na.omit);summary(a4)
+a5 = aov(所有$qn8b_1~as.factor(所有$qa5b),na.action = na.omit);summary(a5)
+
+# Mann-Whitney U test
+# school_system,qa1
+wilcox.test(所有$qn8b_1~所有$school_system)
+aggregate(qn8b_1 ~ school_system, data = 所有, median)
+aggregate(qn8b_1 ~ school_system, data = 所有, mean)
+wilcox.test(所有$qn8b_1~所有$qa1)
+aggregate(qn8b_1 ~ qa1, data = 所有, median)
+aggregate(qn8b_1 ~ qa1, data = 所有, mean)
+
+# Kruskal–Wallis test
+# 出生地區,婚姻狀況,家庭型態,qa5a,qa5b
+kruskal.test(qn8b_1 ~ 出生地區, data = 所有)
+pairwise.wilcox.test(所有$qn8b_1,所有$出生地區,p.adjust.method = "holm")
+aggregate(qn8b_1 ~ 出生地區, data = 所有, median)
+aggregate(qn8b_1 ~ 出生地區, data = 所有, mean)
+kruskal.test(qn8b_1 ~ 婚姻狀況, data = 所有)
+kruskal.test(qn8b_1 ~ 家庭型態, data = 所有)
+kruskal.test(qn8b_1 ~ qa5a, data = 所有)
+kruskal.test(qn8b_1 ~ qa5b, data = 所有)
+
+
+
+# Spearman matrix
+X_vars <- c("成績平均","課業表現","家庭經濟", "家庭支持度","談心人數","現實交友","網路交友","自我認知分數",
+            "三C學習工作時間", "三C娛樂時間","電玩時間","平日睡眠時間", "假日睡眠時間", 
+            "身體健康資訊", "心理健康資訊", "健康資訊判斷能力分數")
+Y_vars <- c("身體疲憊", "心理疲憊", "情緒困擾天數")
+all_vars_clean <- c(Y_vars, X_vars)
+
+analysis_data_final <- 所有[, all_vars_clean]
+
+cor.mtest <- function(mat, method = "spearman") {
+  n <- ncol(mat)
+  P <- matrix(NA, n, n)
+  diag(P) <- 0
+  for (i in 1:(n-1)) {
+    for (j in (i+1):n) {
+      P[i, j] <- P[j, i] <- cor.test(mat[, i], mat[, j], method = method)$p.value
+    }
+  }
+  colnames(P) <- colnames(mat)
+  rownames(P) <- colnames(mat)
+  return(P)
+}
+analysis_data_matrix <- data.matrix(analysis_data_final)
+
+cor_matrix_spearman <- cor(
+  analysis_data_matrix,
+  method = "spearman",
+  use = "pairwise.complete.obs"
+)
+
+p_mat <- cor.mtest(analysis_data_matrix, method = "spearman")
+head(p_mat)      # 檢視 p 值矩陣
+
+corrplot(
+  cor_matrix_spearman,
+  method = "color",          # 顏色方塊
+  type = "lower",            # 下三角
+  order = "original",        # 依原順序排列
+  p.mat = p_mat,             # p值矩陣
+  sig.level = c(0.001, 0.01, 0.05),  # 顯著性分級
+  insig = "label_sig",       # 顯示星號
+  pch.col = "black",         # 黑色星號
+  pch.cex = 1.2,
+  tl.col = "black",          # 標籤顏色
+  tl.srt = 45,               # 標籤角度
+  tl.cex = 0.8,              # 標籤大小
+  tl.pos = "lt",
+  col = colorRampPalette(c("red", "white", "blue"))(200),
+  diag = TRUE)                # 對角線保留顏色
+
+corrplot(
+  cor_matrix_spearman,
+  add = TRUE,                #  疊加到同一張圖上
+  method = "number",         # 顯示數字
+  type = "upper",            #  上三角
+  order = "original",
+  tl.pos = "n",              # 不重複標籤
+  number.cex = 0.8,          # 數字大小
+  tl.cex = 0.8,
+  col = colorRampPalette(c("red", "white", "blue"))(200))
+
+
+# 羅吉斯迴歸
+# 將三個壓力指標分為"緊張狀態組"與"穩定狀態組"
+q <- quantile(所有$情緒困擾天數, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+x_group <- cut(所有$情緒困擾天數, breaks = q, include.lowest = TRUE,
+               labels = c("1", "2", "3", "4"))
+所有$BB <- x_group
+所有$BB = as.numeric(所有$BB)
+所有 <- 所有 %>% 
+  mutate(stress_group_binary = case_when(
+    (BB > 2) & (qn8a_1 > 2 | qn8b_1 > 2) ~ "緊張狀態組",
+      TRUE ~ "穩定狀態組" ))
+table(所有$stress_group_binary)/(357+392)
+所有$Y = as.factor(ifelse(所有$stress_group_binary == "緊張狀態組", 1, 0))
+
+
+# k=5的cv,glm建模
+library(caret)
+set.seed(22)
+vars <- c("Y","qo7_1","qn6","school_system","qa1","出生地區",'qa5a',
+          "心理健康資訊","三C娛樂時間","家庭支持度","電玩時間",
+          "平日睡眠時間","自我認知分數","成績平均")
+df <- 所有[, vars]
+df$Y <- factor(df$Y)
+df_cc <- df[complete.cases(df), ]
+levels(df_cc$Y) <- make.names(levels(df_cc$Y))
+
+train_control <- trainControl(method="cv", number=5, classProbs=TRUE,
+                              summaryFunction=twoClassSummary,
+                              savePredictions="final")
+
+model <- train(Y ~ school_system + qa1 + 出生地區 + qn6 + 成績平均 + qa5a +
+                   qo7_1 + 家庭支持度 + 自我認知分數 + 三C娛樂時間 + 
+                   電玩時間 + 平日睡眠時間 + 心理健康資訊,
+               data = df_cc,
+               method = "glm",
+               family = binomial,
+               metric = "ROC",
+               trControl = train_control)
+model
+summary(model)
+m <- model$finalModel
+OR <- exp(coef(m))
+CI <- exp(confint(m))
+result <- cbind(OR, CI)
+colnames(result) <- c("OR", "2.5 %", "97.5 %")
+round(result, 4)
+write.csv(result, "result.csv", fileEncoding = "big5")
+
+
+aaa = read.csv("C:\\Users\\user\\Desktop\\資料漫步\\result.csv", fileEncoding = "big5")
+
+
+library(forestplot)
+
+forestplot(as.matrix(aaa[,1:2]),
+           aaa$v3,
+           aaa$v4,
+           aaa$v5,
+           zero=1,
+           clip=c(0.4,15),
+           graph.pos=2,
+           xticks=c(0.1,1,10,100),
+           boxsize=0.25,
+           xlog=T,
+           lwd.ci = 3,
+        
+           txt_gp = fpTxtGp(
+             label  = gpar(cex = 1.2),   # 左側變項文字
+             ticks  = gpar(cex = 1.2),   # X軸刻度文字
+             xlab   = gpar(cex = 1.2)
+           ))
+
+
+
+pred <- model$pred
+pred_final <- pred
+confusionMatrix(pred_final$pred, pred_final$obs, positive = "X1")
+
+
+
+library(pROC)
+pred_cv <- model$pred
+pos_class <- model$levels[1]
+lev_order <- levels(pred_cv$obs)
+rocs_by_fold <- by(pred_cv, pred_cv$Resample, function(d) {
+  roc(response = d$obs,
+      predictor = d[[pos_class]],
+      levels = rev(lev_order),
+      quiet = TRUE)
+})
+roc_all <- roc(response = pred_cv$obs,
+               predictor = pred_cv[[pos_class]],
+               levels = rev(lev_order),
+               quiet = TRUE)
+auc_all <- auc(roc_all)
+plot(rocs_by_fold[[1]],
+     col = "grey80", lwd = 1,
+     legacy.axes = TRUE)
+for (i in 2:length(rocs_by_fold)) {
+  plot(rocs_by_fold[[i]], add = TRUE, col = "grey80", lwd = 1)
+}
+plot(roc_all, add = TRUE, lwd = 2, col = "black")
